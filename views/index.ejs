@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FinTrack Dashboard</title>
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        body { background-color: #f4f7f6; }
+        .income { color: #198754; font-weight: bold; }
+        .expense { color: #dc3545; font-weight: bold; }
+        .net-positive { color: #0d6efd; font-weight: bold; }
+        .net-negative { color: #dc3545; font-weight: bold; }
+        .card { border-radius: 0.75rem; border: none; }
+        .header-bg { background-color: #0d6efd; color: white; border-radius: 0 0 0.75rem 0.75rem; padding: 20px 0; }
+        .form-card { background-color: #ffffff; padding: 20px; border-radius: 0.75rem; }
+        .monthly-card .list-group-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        /* Style for better visibility in transaction list */
+        .table-success-light { background-color: #d1e7dd; } 
+        .table-danger-light { background-color: #f8d7da; }
+        @media (max-width: 768px) {
+            .summary-card { margin-bottom: 15px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="header-bg shadow-sm mb-5">
+        <div class="container">
+            <div class="d-flex justify-content-between align-items-center">
+                <h1 class="h3"><i class="fas fa-chart-line"></i> FinTrack</h1>
+                <div class="d-flex align-items-center">
+                    <% if (locals.currentUser) { %>
+                        <span class="me-3 d-none d-md-inline">Welcome, <strong><%= currentUser.name %></strong>!</span>
+                    <% } %>
+                    <!-- Logout Button -->
+                    <a href="/logout" class="btn btn-light btn-sm fw-bold text-primary" onclick="return confirm('Are you sure you want to logout?');">
+                        <i class="fas fa-sign-out-alt"></i> Logout
+                    </a>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <div class="container">
+        
+        <% if (locals.error) { %>
+            <div class="alert alert-danger" role="alert">
+                <%= error %>
+            </div>
+        <% } %>
+
+        <!-- Financial Summary Cards -->
+        <div class="row mb-5">
+            <div class="col-md-4 summary-card">
+                <div class="card shadow-sm text-center bg-success text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">Total Income (Filtered)</h6>
+                        <p class="h4"><%= formatCurrency(summary.income) %></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 summary-card">
+                <div class="card shadow-sm text-center bg-danger text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">Total Expenses (Filtered)</h6>
+                        <p class="h4"><%= formatCurrency(summary.expense) %></p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4 summary-card">
+                <div class="card shadow-sm text-center <%= summary.net >= 0 ? 'bg-primary' : 'bg-secondary' %> text-white">
+                    <div class="card-body">
+                        <h6 class="card-title">Net Balance (Filtered)</h6>
+                        <p class="h4"><%= formatCurrency(summary.net) %></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monthly Trends Chart -->
+        <div class="row mb-5">
+            <div class="col-12">
+                <div class="card shadow">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-secondary"><i class="fas fa-chart-bar"></i> Last 12 Months Financial Trend</h5>
+                    </div>
+                    <div class="card-body">
+                        <div style="height: 350px;">
+                             <canvas id="monthlyChart" class="w-100"></canvas>
+                        </div>
+                       
+                        <% if (monthlyBreakdown.length === 0) { %>
+                            <p class="text-center text-muted pt-3">No data available for charting. Add transactions to see trends.</p>
+                        <% } %>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Left Column: Transaction Form & Monthly Breakdown List -->
+            <div class="col-lg-4 mb-4">
+                
+                <!-- Add/Edit Form -->
+                <div class="card shadow mb-4">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-primary">
+                            <%= editTransaction ? 'Edit Transaction' : 'Add New Transaction' %>
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="POST" action="<%= editTransaction ? '/update/' + editTransaction._id : '/add' %>">
+                            
+                            <!-- Transaction Type -->
+                            <div class="mb-3">
+                                <label class="form-label">Type</label>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="type" id="incomeRadio" value="income" required
+                                        <%= editTransaction && editTransaction.type === 'income' ? 'checked' : (editTransaction ? '' : 'checked') %>>
+                                    <label class="form-check-label" for="incomeRadio">Income</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="type" id="expenseRadio" value="expense" required
+                                        <%= editTransaction && editTransaction.type === 'expense' ? 'checked' : '' %>>
+                                    <label class="form-check-label" for="expenseRadio">Expense</label>
+                                </div>
+                            </div>
+
+                            <!-- Category -->
+                            <div class="mb-3">
+                                <label for="category" class="form-label">Category</label>
+                                <select class="form-select" id="category" name="category" required>
+                                    <option value="" disabled selected>Select Category</option>
+                                    <% categories.forEach(cat => { %>
+                                        <option value="<%= cat %>"
+                                            <%= editTransaction && editTransaction.category === cat ? 'selected' : '' %>>
+                                            <%= cat %>
+                                        </option>
+                                    <% }); %>
+                                </select>
+                            </div>
+
+                            <!-- Amount -->
+                            <div class="mb-3">
+                                <label for="amount" class="form-label">Amount ($)</label>
+                                <input type="number" step="0.01" min="0.01" class="form-control" id="amount" name="amount" required
+                                    value="<%= editTransaction ? editTransaction.amount : '' %>">
+                            </div>
+
+                            <!-- Date -->
+                            <div class="mb-3">
+                                <label for="date" class="form-label">Date</label>
+                                <% 
+                                    const transactionDate = editTransaction ? new Date(editTransaction.date) : new Date();
+                                    // Handle timezone offset for correct date display in input
+                                    const year = transactionDate.getFullYear();
+                                    const month = String(transactionDate.getMonth() + 1).padStart(2, '0');
+                                    const day = String(transactionDate.getDate()).padStart(2, '0');
+                                    const formattedDate = `${year}-${month}-${day}`;
+                                %>
+                                <input type="date" class="form-control" id="date" name="date" required
+                                    value="<%= formattedDate %>">
+                            </div>
+
+                            <!-- Note (Optional) -->
+                            <div class="mb-3">
+                                <label for="note" class="form-label">Note (Optional)</label>
+                                <textarea class="form-control" id="note" name="note" rows="2"><%= editTransaction ? editTransaction.note : '' %></textarea>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary w-100 mt-2">
+                                <%= editTransaction ? 'Update Transaction' : 'Add Transaction' %>
+                            </button>
+                            <% if (editTransaction) { %>
+                                <a href="/" class="btn btn-outline-secondary w-100 mt-2">Cancel Edit</a>
+                            <% } %>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Monthly Breakdown Card (List View) -->
+                <div class="card shadow mt-4 monthly-card">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-info"><i class="fas fa-list"></i> Monthly Net Summary (Last 6)</h5>
+                    </div>
+                    <ul class="list-group list-group-flush">
+                        <% if (monthlyBreakdown.length === 0) { %>
+                            <li class="list-group-item text-center text-muted">No monthly breakdown data.</li>
+                        <% } %>
+                        <!-- Showing last 6 months in list for brevity -->
+                        <% monthlyBreakdown.slice(-6).forEach(data => { %>
+                            <li class="list-group-item">
+                                <span class="fw-bold"><%= data.label %></span>
+                                <span class="<%= data.net >= 0 ? 'income' : 'expense' %>">
+                                    <%= formatCurrency(data.net) %>
+                                </span>
+                            </li>
+                        <% }); %>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Right Column: Filter and Transaction List -->
+            <div class="col-lg-8">
+                <!-- Filtering Section -->
+                <div class="card shadow mb-4">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-secondary"><i class="fas fa-filter"></i> Filter Transactions</h5>
+                    </div>
+                    <div class="card-body">
+                        <form method="GET" action="/" class="row g-3">
+                            <div class="col-md-5">
+                                <label for="filterMonth" class="form-label">Filter by Month:</label>
+                                <input type="month" class="form-control" id="filterMonth" name="month"
+                                    value="<%= query.month || '' %>">
+                            </div>
+                            <div class="col-md-5">
+                                <label for="filterCategory" class="form-label">Filter by Category:</label>
+                                <select class="form-select" id="filterCategory" name="category">
+                                    <option value="all">-- All Categories --</option>
+                                    <% categories.forEach(cat => { %>
+                                        <option value="<%= cat %>"
+                                            <%= query.category === cat ? 'selected' : '' %>>
+                                            <%= cat %>
+                                        </option>
+                                    <% }); %>
+                                </select>
+                            </div>
+                            <div class="col-md-2 d-flex align-items-end">
+                                <button type="submit" class="btn btn-info w-100"><i class="fas fa-search"></i> Apply</button>
+                            </div>
+                            <div class="col-md-12 mt-3">
+                                <a href="/" class="btn btn-outline-secondary btn-sm"><i class="fas fa-times"></i> Clear Filters</a>
+                                <a href="/export/csv" class="btn btn-success btn-sm float-end"><i class="fas fa-file-csv"></i> Export to CSV</a>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Transaction List -->
+                <div class="card shadow">
+                    <div class="card-header bg-white">
+                        <h5 class="mb-0 text-secondary">Transaction History (<%= transactions.length %> Records)</h5>
+                    </div>
+                    <div class="card-body p-0">
+                        <div class="table-responsive">
+                            <table class="table table-hover mb-0">
+                                <thead>
+                                    <tr>
+                                        <th>Date</th>
+                                        <th>Type</th>
+                                        <th>Category</th>
+                                        <th class="text-end">Amount</th>
+                                        <th>Note</th>
+                                        <th class="text-center">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <% if (transactions.length === 0) { %>
+                                        <tr>
+                                            <td colspan="6" class="text-center text-muted">
+                                                No transactions found for the current filter.
+                                            </td>
+                                        </tr>
+                                    <% } %>
+                                    <% transactions.forEach(t => { %>
+                                        <tr class="<%= t.type === 'income' ? 'table-success-light' : 'table-danger-light' %>">
+                                            <td><%= formatDate(t.date) %></td>
+                                            <td>
+                                                <span class="badge <%= t.type === 'income' ? 'bg-success' : 'bg-danger' %>">
+                                                    <%= t.type.charAt(0).toUpperCase() + t.type.slice(1) %>
+                                                </span>
+                                            </td>
+                                            <td><%= t.category %></td>
+                                            <td class="text-end <%= t.type %>">
+                                                <%= formatCurrency(t.amount) %>
+                                            </td>
+                                            <td><%= t.note %></td>
+                                            <td class="text-center">
+                                                <a href="/edit/<%= t._id %>" class="btn btn-sm btn-outline-primary me-2" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <form action="/delete/<%= t._id %>" method="POST" style="display:inline;" onsubmit="return confirm('Are you sure you want to delete this transaction?');">
+                                                    <button type="submit" class="btn btn-sm btn-outline-danger" title="Delete">
+                                                        <i class="fas fa-trash-alt"></i>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                        </tr>
+                                    <% }); %>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <script type="application/json" id="chartData">
+        <%- JSON.stringify(monthlyBreakdown) %>
+    </script>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const chartData = JSON.parse(document.getElementById('chartData').textContent);
+            
+            if (chartData.length === 0) return;
+
+            // Prepare data for Chart.js
+            const labels = chartData.map(data => data.label);
+            const incomeData = chartData.map(data => data.income);
+            const expenseData = chartData.map(data => data.expense);
+
+            const ctx = document.getElementById('monthlyChart').getContext('2d');
+            
+            // Function to format tooltip currency
+            const currencyTooltip = (value) => {
+                return new Intl.NumberFormat('en-US', {
+                    style: 'currency',
+                    currency: 'USD',
+                }).format(value);
+            };
+
+            const monthlyChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: 'Income',
+                            data: incomeData,
+                            backgroundColor: 'rgba(25, 135, 84, 0.7)', // Green
+                            borderColor: 'rgba(25, 135, 84, 1)',
+                            borderWidth: 1,
+                        },
+                        {
+                            label: 'Expenses',
+                            data: expenseData,
+                            backgroundColor: 'rgba(220, 53, 69, 0.7)', // Red
+                            borderColor: 'rgba(220, 53, 69, 1)',
+                            borderWidth: 1,
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false, // Allows chart to fill container better
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: 'Amount ($)'
+                            },
+                            // Format Y-axis labels as currency
+                            ticks: {
+                                callback: function(value) {
+                                    return currencyTooltip(value);
+                                }
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                        },
+                        title: {
+                            display: true,
+                            text: 'Income vs. Expenses by Month'
+                        },
+                        // Tooltip configuration (shows currency formatting)
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    let label = context.dataset.label || '';
+                                    if (label) {
+                                        label += ': ';
+                                    }
+                                    if (context.parsed.y !== null) {
+                                        label += currencyTooltip(context.parsed.y);
+                                    }
+                                    return label;
+                                }
+                            }
+                        }
+                    },
+                    // Set a default aspect ratio for initial render
+                    aspectRatio: 1.5,
+                }
+            });
+            
+            // Fix for chart rendering issues on resize/container sizing
+            window.addEventListener('resize', () => {
+                 monthlyChart.resize();
+            });
+            // Initial render fix for chart inside a hidden tab/card (though here it's visible)
+            monthlyChart.resize(); 
+
+        });
+    </script>
+</body>
+</html>
